@@ -121,7 +121,7 @@
   <div class="bar">
     <span class="logo"><span class="dot">◉</span> Huan Yin Securities</span>
     <span id="mkt" class="badge"><span class="pd"></span><span id="mktTxt">检测中</span></span>
-    <span class="cond">20日内涨停 × 收盘站上5日线 × 30分钟放量上涨</span>
+    <span class="cond">20日内涨停 × 收盘站上5日线 × 30分钟局部放量上涨</span>
     <span class="clock mono" id="clock"></span>
   </div>
 </header>
@@ -129,7 +129,7 @@
 <div class="wrap">
   <div class="card">
     <div class="ctrl">
-      <label>阶段放量≥ <input type="number" id="threshold" value="1.5" step="0.1" min="0.5"> 倍</label>
+      <label>局部放量≥ <input type="number" id="threshold" value="1.5" step="0.1" min="0.5"> 倍</label>
       <button class="btn-go" id="btnStart">▶ 开始扫描</button>
       <button class="btn-stop" id="btnStop" style="display:none">■ 停止</button>
       <label style="cursor:pointer"><span class="switch" id="autoSw"></span> 每 10 分钟自动扫描</label>
@@ -144,7 +144,7 @@
       <span>已检查 <b class="mono" id="stDone">0</b> 只</span>
       <span class="hl">命中 <b class="mono" id="stHits">0</b> 只</span>
       <span>用时 <b class="mono" id="stTime">--</b> 秒</span>
-      <span style="margin-left:auto">按阶段放量倍数排序 · 点击行查看个股</span>
+      <span style="margin-left:auto">按局部放量倍数排序 · 点击行查看个股</span>
     </div>
   </div>
 
@@ -153,7 +153,7 @@
   </div>
 
   <div class="note">
-    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 最近 2 小时（4 根 30 分钟 K 线）阶段涨幅 ≥1% 且至少 3 根收阳，近 4 根合计成交量 ≥ 前 4 根 × 阈值。
+    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 最近一根 30 分钟 K 线收阳上涨，且其成交量 ≥ 前一根 30 分钟 K 线 × 阈值（局部放量）。
   </div>
 
   <footer>
@@ -290,7 +290,7 @@ async function runScan(isAuto) {
       return finish();
     }
 
-    // 阶段 2：5日线趋势 + 阶段放量（并发 5）
+    // 阶段 2：5日线趋势 + 30分钟局部放量（并发 5）
     const results = [];
     const queue = [...candidates];
     let done = 0, hits = 0;
@@ -310,23 +310,20 @@ async function runScan(isAuto) {
               const m30 = await getJSON(M30_URL(txCode(c)));
               const bars = (m30.data[txCode(c)] || {}).m30 || [];
               const n = bars.length;
-              if (n >= 9) {
-                const vols = bars.map((r) => Number(r[5]));
-                const W = 4;
-                const sR = vols.slice(n - W).reduce((a, b) => a + b, 0);
-                const sP = vols.slice(n - 2 * W, n - W).reduce((a, b) => a + b, 0);
-                const ratio = sP > 0 ? sR / sP : 0;
-                const base = Number(bars[n - W - 1][2]);
-                const stagePct = base > 0 ? ((Number(bars[n - 1][2]) - base) / base) * 100 : 0;
-                let bullBars = 0;
-                for (let i = n - W; i < n; i++) if (Number(bars[i][2]) > Number(bars[i][1])) bullBars++;
-                if (stagePct >= 1 && bullBars >= 3 && ratio >= volThreshold) {
+              if (n >= 4) {
+                // 局部放量：最近一根 30 分钟 K 线 vs 前一根
+                const vLast = Number(bars[n - 1][5]), vPrev = Number(bars[n - 2][5]);
+                const cLast = Number(bars[n - 1][2]), oLast = Number(bars[n - 1][1]);
+                const cPrev = Number(bars[n - 2][2]);
+                const ratio = vPrev > 0 ? vLast / vPrev : 0;
+                const barPct = cPrev > 0 ? ((cLast - cPrev) / cPrev) * 100 : 0;
+                if (cLast > oLast && barPct > 0 && ratio >= volThreshold) {
                   const prevClose = closes[closes.length - 2];
                   hits++;
                   results.push({
                     code: c.code, m: c.m, name: c.name, lbc: c.lbc, lastZT: c.lastZT,
                     price: last, pct: prevClose ? ((last - prevClose) / prevClose) * 100 : null,
-                    ma5, volRatio: ratio, stagePct,
+                    ma5, volRatio: ratio, latest30: barPct,
                   });
                 }
               }
@@ -375,7 +372,7 @@ function renderResults(list, totalCand, secs) {
   $("stHits").textContent = list.length;
   $("stTime").textContent = secs;
   if (!list.length) {
-    $("resultBox").innerHTML = `<div class="empty"><div class="big">🔍</div>当前没有同时满足三个条件的个股<br><span style="font-size:11px;color:#52525b">可放宽「阶段放量」阈值后重新扫描</span></div>`;
+    $("resultBox").innerHTML = `<div class="empty"><div class="big">🔍</div>当前没有同时满足三个条件的个股<br><span style="font-size:11px;color:#52525b">可放宽「局部放量」阈值后重新扫描</span></div>`;
     return;
   }
   const rows = list.map((r) => {
@@ -385,12 +382,12 @@ function renderResults(list, totalCand, secs) {
       <td><span class="mono ${cls(r.pct)}">${r.price.toFixed(2)}</span><br><span class="sub mono ${cls(r.pct)}">${sgn(r.pct)}%</span></td>
       <td class="mono" style="color:#d4d4d8">${fmtZT(r.lastZT)}</td>
       <td><span class="trend-tag">5日线上</span><br><span class="sub mono" style="color:#71717a">M5 ${r.ma5.toFixed(2)}</span></td>
-      <td><span class="vol mono">${r.volRatio.toFixed(2)}×</span><br><span class="sub mono ${cls(r.stagePct)}">2小时${sgn(r.stagePct)}%</span></td>
+      <td><span class="vol mono">${r.volRatio.toFixed(2)}×</span><br><span class="sub mono ${cls(r.latest30)}">30分${sgn(r.latest30)}%</span></td>
       <td><a class="q" href="https://gu.qq.com/${tx}" target="_blank" rel="noopener">行情 ↗</a></td>
     </tr>`;
   }).join("");
   $("resultBox").innerHTML = `<div style="overflow-x:auto"><table>
-    <thead><tr><th>名称 / 代码</th><th>最新价</th><th class="hide-sm">最近涨停</th><th class="hide-sm">日K趋势</th><th>阶段放量</th><th></th></tr></thead>
+    <thead><tr><th>名称 / 代码</th><th>最新价</th><th class="hide-sm">最近涨停</th><th class="hide-sm">日K趋势</th><th>局部放量</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
   $("resultBox").querySelectorAll("tbody tr").forEach((tr) => {
     tr.addEventListener("click", (e) => {
