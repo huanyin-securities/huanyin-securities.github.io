@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Huan Yin Securities · 涨停策略扫描器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #09090b; color: #f4f4f5;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 16px; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(9,9,11,.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid #27272a;
+  }
+  .bar { max-width: 1080px; margin: 0 auto; padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .logo { font-size: 17px; font-weight: 700; letter-spacing: .5px; }
+  .logo .dot { color: #38bdf8; }
+  .badge {
+    font-size: 11px; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid #3f3f46; color: #a1a1aa;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .badge.open { border-color: rgba(244,63,94,.4); background: rgba(244,63,94,.1); color: #fb7185; }
+  .badge .pd { width: 6px; height: 6px; border-radius: 50%; background: #71717a; }
+  .badge.open .pd { background: #fb7185; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .cond { font-size: 11px; color: #7dd3fc; border: 1px solid rgba(56,189,248,.35);
+    background: rgba(56,189,248,.08); padding: 2px 10px; border-radius: 999px; }
+  .clock { margin-left: auto; font-size: 12px; color: #71717a; }
+
+  .card {
+    background: #101013; border: 1px solid #27272a; border-radius: 12px;
+    margin-top: 14px; overflow: hidden;
+  }
+  .ctrl { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; }
+  .ctrl label { font-size: 12px; color: #a1a1aa; display: inline-flex; align-items: center; gap: 6px; }
+  input[type=number] {
+    width: 64px; height: 28px; background: #18181b; border: 1px solid #3f3f46;
+    border-radius: 6px; color: #e4e4e7; text-align: center; font-size: 12px;
+  }
+  input[type=number]:focus { outline: none; border-color: #71717a; }
+  button {
+    height: 30px; padding: 0 14px; border-radius: 6px; border: none;
+    font-size: 12px; cursor: pointer; transition: filter .15s;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-go { background: #0284c7; color: #fff; font-weight: 600; }
+  .btn-go:hover:not(:disabled) { filter: brightness(1.2); }
+  .btn-stop { background: #7f1d1d; color: #fecaca; }
+  .switch { position: relative; width: 34px; height: 18px; background: #3f3f46;
+    border-radius: 999px; cursor: pointer; transition: background .2s; flex: none; }
+  .switch.on { background: #0284c7; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    background: #fff; border-radius: 50%; transition: left .2s; }
+  .switch.on::after { left: 18px; }
+
+  .prog { padding: 0 16px 12px; }
+  .prog .row { display: flex; justify-content: space-between; font-size: 12px; color: #a1a1aa; margin-bottom: 6px; }
+  .prog .hits { color: #fb7185; }
+  .track { height: 6px; background: #27272a; border-radius: 999px; overflow: hidden; }
+  .fill { height: 100%; width: 0%; background: linear-gradient(90deg, #0284c7, #38bdf8);
+    border-radius: 999px; transition: width .3s; }
+
+  .stats { display: flex; gap: 18px; padding: 10px 16px; font-size: 12px; color: #71717a;
+    border-bottom: 1px solid #27272a; flex-wrap: wrap; }
+  .stats b { color: #e4e4e7; font-weight: 600; }
+  .stats .hl b { color: #fb7185; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: right; font-size: 11px; color: #71717a; font-weight: 500;
+    padding: 8px 12px; border-bottom: 1px solid #27272a; white-space: nowrap;
+  }
+  thead th:first-child, tbody td:first-child { text-align: left; }
+  tbody td { padding: 9px 12px; border-bottom: 1px solid #1f1f22; text-align: right; white-space: nowrap; }
+  tbody tr { cursor: pointer; transition: background .12s; }
+  tbody tr:hover { background: rgba(63,63,70,.35); }
+  .nm { font-weight: 600; }
+  .cd { font-size: 11px; color: #71717a; }
+  .lb { font-size: 10px; color: #fb7185; background: rgba(244,63,94,.12);
+    border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+  .up { color: #f43f5e; } .dn { color: #10b981; } .flat { color: #a1a1aa; }
+  .sub { font-size: 11px; }
+  .trend-tag { font-size: 10px; color: #34d399; background: rgba(16,185,129,.12);
+    border-radius: 4px; padding: 2px 6px; }
+  .vol { color: #fbbf24; font-weight: 700; }
+  a.q { color: #38bdf8; font-size: 12px; text-decoration: none; }
+  a.q:hover { text-decoration: underline; }
+
+  .empty { padding: 44px 16px; text-align: center; color: #71717a; font-size: 13px; }
+  .empty .big { font-size: 30px; margin-bottom: 10px; }
+  .err { padding: 24px 16px; text-align: center; color: #fb7185; font-size: 13px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(20px);
+    background: #18181b; border: 1px solid rgba(244,63,94,.5); color: #fecdd3;
+    padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0;
+    transition: all .3s; pointer-events: none; z-index: 50; max-width: 90vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  footer { text-align: center; font-size: 11px; color: #52525b; padding: 18px 16px 28px; line-height: 1.8; }
+  .note { font-size: 11px; color: #52525b; padding: 0 16px 10px; line-height: 1.7; }
+  @media (max-width: 640px) {
+    .hide-sm { display: none; }
+    tbody td, thead th { padding: 8px 6px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <span class="logo"><span class="dot">◉</span> Huan Yin Securities</span>
+    <span id="mkt" class="badge"><span class="pd"></span><span id="mktTxt">检测中</span></span>
+    <span class="cond">20日内涨停 × 收盘站上5日线 × 30分钟放量上涨</span>
+    <span class="clock mono" id="clock"></span>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <div class="ctrl">
+      <label>阶段放量≥ <input type="number" id="threshold" value="1.5" step="0.1" min="0.5"> 倍</label>
+      <button class="btn-go" id="btnStart">▶ 开始扫描</button>
+      <button class="btn-stop" id="btnStop" style="display:none">■ 停止</button>
+      <label style="cursor:pointer"><span class="switch" id="autoSw"></span> 每 10 分钟自动扫描</label>
+      <span id="statusTxt" style="font-size:12px;color:#71717a;margin-left:auto"></span>
+    </div>
+    <div class="prog" id="progBox" style="display:none">
+      <div class="row"><span id="phaseTxt"></span><span class="mono" id="pctTxt"></span></div>
+      <div class="track"><div class="fill" id="fill"></div></div>
+    </div>
+    <div class="stats" id="statsBox" style="display:none">
+      <span>候选 <b class="mono" id="stCand">0</b> 只</span>
+      <span>已检查 <b class="mono" id="stDone">0</b> 只</span>
+      <span class="hl">命中 <b class="mono" id="stHits">0</b> 只</span>
+      <span>用时 <b class="mono" id="stTime">--</b> 秒</span>
+      <span style="margin-left:auto">按阶段放量倍数排序 · 点击行查看个股</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="resultBox"><div class="empty"><div class="big">📡</div>点击「开始扫描」全市场筛选符合三条件的个股（约 1–3 分钟）<br><span style="font-size:11px;color:#52525b">涨停池：东方财富 · K 线：腾讯 · 浏览器直连，无需服务器</span></div></div>
+  </div>
+
+  <div class="note">
+    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 最近 2 小时（4 根 30 分钟 K 线）阶段涨幅 ≥1% 且至少 3 根收阳，近 4 根合计成交量 ≥ 前 4 根 × 阈值。
+  </div>
+
+  <footer>
+    行情数据来自东方财富 / 腾讯公开接口，仅供参考，不构成投资建议。股市有风险，投资需谨慎。
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const ZT_URL = (dt) => `https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=500&sort=fbt%3Aasc&date=${dt}`;
+const DAY_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`;
+const M30_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=${tx},m30,,16`;
+const POOL_DAYS = 28;
+const AUTO_MS = 10 * 60 * 1000;
+
+let running = false, cancelFlag = false, autoTimer = null, lastHitKeys = new Set();
+
+/* ---------- 工具 ---------- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function getJSON(url, retries = 1) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    } catch (e) { lastErr = e; if (i < retries) await sleep(600 * (i + 1)); }
+  }
+  throw lastErr;
+}
+function lastNDates(n) {
+  const out = [];
+  const d = new Date();
+  for (let i = 0; i < n; i++) {
+    out.push(d.toLocaleDateString("sv-SE").replaceAll("-", ""));
+    d.setDate(d.getDate() - 1);
+  }
+  return out;
+}
+const txCode = (c) => (c.m === 1 ? "sh" : /^[489]/.test(c.code) ? "bj" : "sz") + c.code;
+const fmtZT = (dt) => (dt.length === 8 ? dt.slice(4, 6) + "-" + dt.slice(6, 8) : dt);
+const cls = (v) => (v == null || isNaN(v) ? "flat" : v > 0 ? "up" : v < 0 ? "dn" : "flat");
+const sgn = (v, d = 2) => (v == null || isNaN(v) ? "--" : (v > 0 ? "+" : "") + Number(v).toFixed(d));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function toast(msg, ms = 5000) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove("show"), ms);
+}
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const play = (f, s, d) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + s);
+      g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + s + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + s + d);
+      o.start(ctx.currentTime + s); o.stop(ctx.currentTime + s + d + 0.05);
+    };
+    play(880, 0, 0.18); play(1174.66, 0.2, 0.28);
+    setTimeout(() => ctx.close().catch(() => {}), 1200);
+  } catch (e) {}
+}
+
+/* ---------- 行情状态与时钟 ---------- */
+function tickClock() {
+  const now = new Date();
+  $("clock").textContent = now.toLocaleTimeString("zh-CN");
+  const day = now.getDay(), mins = now.getHours() * 60 + now.getMinutes();
+  const open = day !== 0 && day !== 6 && ((mins >= 570 && mins <= 690) || (mins >= 780 && mins <= 900));
+  $("mkt").classList.toggle("open", open);
+  $("mktTxt").textContent = open ? "A股交易中" : "已收盘 / 休市";
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ---------- 扫描 ---------- */
+function setProgress(phase, done, total, hits) {
+  $("progBox").style.display = "block";
+  $("statsBox").style.display = "flex";
+  $("phaseTxt").textContent = phase;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  $("fill").style.width = pct + "%";
+  $("pctTxt").textContent = done + "/" + total + (hits > 0 ? " · 命中 " + hits : "");
+  $("stCand").textContent = total && phase.includes("候选") ? total : $("stCand").textContent;
+  $("stDone").textContent = done;
+  $("stHits").textContent = hits;
+}
+
+async function runScan(isAuto) {
+  if (running) return;
+  running = true; cancelFlag = false;
+  $("btnStart").style.display = "none";
+  $("btnStop").style.display = "";
+  $("statusTxt").textContent = "扫描中…";
+  const t0 = Date.now();
+  const volThreshold = Math.max(0.5, Number($("threshold").value) || 1.5);
+
+  try {
+    // 阶段 1：涨停池聚合
+    const dates = lastNDates(POOL_DAYS);
+    const candMap = new Map();
+    let ztDone = 0;
+    await Promise.all(dates.map(async (dt) => {
+      try {
+        const d = await getJSON(ZT_URL(dt));
+        for (const p of (d.data && d.data.pool) || []) {
+          if (!p.c || !p.n) continue;
+          const ex = candMap.get(p.c);
+          if (!ex) candMap.set(p.c, { code: p.c, m: p.m, name: p.n, lbc: p.lbc || 1, lastZT: dt });
+          else {
+            if (dt > ex.lastZT) { ex.lastZT = dt; ex.name = p.n; ex.m = p.m; }
+            ex.lbc = Math.max(ex.lbc, p.lbc || 1);
+          }
+        }
+      } catch (e) { /* 非交易日或网络异常，跳过 */ }
+      ztDone++;
+      setProgress(`正在汇总涨停池（近 20 个交易日）…`, ztDone, dates.length, 0);
+    }));
+
+    if (cancelFlag) return finish();
+    const candidates = [...candMap.values()];
+    $("stCand").textContent = candidates.length;
+    if (candidates.length === 0) {
+      renderResults([], 0, ((Date.now() - t0) / 1000).toFixed(0));
+      toast("近 20 个交易日涨停池为空或接口暂不可用，请稍后重试", 6000);
+      return finish();
+    }
+
+    // 阶段 2：5日线趋势 + 阶段放量（并发 5）
+    const results = [];
+    const queue = [...candidates];
+    let done = 0, hits = 0;
+    const worker = async () => {
+      while (queue.length && !cancelFlag) {
+        const c = queue.shift();
+        try {
+          const daily = await getJSON(DAY_URL(txCode(c)));
+          const node = daily.data[txCode(c)];
+          const rows = node.qfqday || node.day || [];
+          const closes = rows.map((r) => Number(r[2]));
+          if (closes.length >= 6) {
+            const last = closes[closes.length - 1];
+            const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+            const ma5 = avg(closes.slice(-5));
+            if (last > ma5) {
+              const m30 = await getJSON(M30_URL(txCode(c)));
+              const bars = (m30.data[txCode(c)] || {}).m30 || [];
+              const n = bars.length;
+              if (n >= 9) {
+                const vols = bars.map((r) => Number(r[5]));
+                const W = 4;
+                const sR = vols.slice(n - W).reduce((a, b) => a + b, 0);
+                const sP = vols.slice(n - 2 * W, n - W).reduce((a, b) => a + b, 0);
+                const ratio = sP > 0 ? sR / sP : 0;
+                const base = Number(bars[n - W - 1][2]);
+                const stagePct = base > 0 ? ((Number(bars[n - 1][2]) - base) / base) * 100 : 0;
+                let bullBars = 0;
+                for (let i = n - W; i < n; i++) if (Number(bars[i][2]) > Number(bars[i][1])) bullBars++;
+                if (stagePct >= 1 && bullBars >= 3 && ratio >= volThreshold) {
+                  const prevClose = closes[closes.length - 2];
+                  hits++;
+                  results.push({
+                    code: c.code, m: c.m, name: c.name, lbc: c.lbc, lastZT: c.lastZT,
+                    price: last, pct: prevClose ? ((last - prevClose) / prevClose) * 100 : null,
+                    ma5, volRatio: ratio, stagePct,
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) { /* 单票异常跳过 */ }
+        done++;
+        if (done % 5 === 0 || done === candidates.length)
+          setProgress(`正在检查候选股（${candidates.length} 只）…`, done, candidates.length, hits);
+      }
+    };
+    await Promise.all(Array.from({ length: 5 }, worker));
+    if (cancelFlag) return finish();
+
+    results.sort((a, b) => b.volRatio - a.volRatio);
+    const secs = ((Date.now() - t0) / 1000).toFixed(0);
+    renderResults(results, candidates.length, secs);
+
+    // 新命中提醒（自动扫描时）
+    const keys = new Set(results.map((r) => r.code));
+    const fresh = results.filter((r) => !lastHitKeys.has(r.code));
+    if (isAuto && fresh.length > 0) {
+      toast(`🔔 新命中 ${fresh.length} 只：${fresh.slice(0, 3).map((r) => r.name).join("、")}${fresh.length > 3 ? " 等" : ""}`, 8000);
+      beep();
+    }
+    lastHitKeys = keys;
+    if (!isAuto) toast(results.length > 0 ? `扫描完成：命中 ${results.length} 只符合条件的个股` : "扫描完成：暂无符合条件的个股", 5000);
+  } catch (e) {
+    $("resultBox").innerHTML = `<div class="err">扫描失败：${esc(e.message || e)}。请检查网络后重试。</div>`;
+    toast("扫描失败，请稍后重试", 5000);
+  } finally {
+    finish();
+  }
+
+  function finish() {
+    running = false;
+    $("btnStart").style.display = "";
+    $("btnStop").style.display = "none";
+    $("statusTxt").textContent = "";
+  }
+}
+
+function renderResults(list, totalCand, secs) {
+  $("stCand").textContent = totalCand;
+  $("stDone").textContent = totalCand;
+  $("stHits").textContent = list.length;
+  $("stTime").textContent = secs;
+  if (!list.length) {
+    $("resultBox").innerHTML = `<div class="empty"><div class="big">🔍</div>当前没有同时满足三个条件的个股<br><span style="font-size:11px;color:#52525b">可放宽「阶段放量」阈值后重新扫描</span></div>`;
+    return;
+  }
+  const rows = list.map((r) => {
+    const tx = txCode(r);
+    return `<tr data-tx="${tx}" data-name="${esc(r.name)}">
+      <td><span class="nm">${esc(r.name)}</span>${r.lbc >= 2 ? `<span class="lb">${r.lbc} 连板</span>` : ""}<br><span class="cd mono">${r.code}</span></td>
+      <td><span class="mono ${cls(r.pct)}">${r.price.toFixed(2)}</span><br><span class="sub mono ${cls(r.pct)}">${sgn(r.pct)}%</span></td>
+      <td class="mono" style="color:#d4d4d8">${fmtZT(r.lastZT)}</td>
+      <td><span class="trend-tag">5日线上</span><br><span class="sub mono" style="color:#71717a">M5 ${r.ma5.toFixed(2)}</span></td>
+      <td><span class="vol mono">${r.volRatio.toFixed(2)}×</span><br><span class="sub mono ${cls(r.stagePct)}">2小时${sgn(r.stagePct)}%</span></td>
+      <td><a class="q" href="https://gu.qq.com/${tx}" target="_blank" rel="noopener">行情 ↗</a></td>
+    </tr>`;
+  }).join("");
+  $("resultBox").innerHTML = `<div style="overflow-x:auto"><table>
+    <thead><tr><th>名称 / 代码</th><th>最新价</th><th class="hide-sm">最近涨停</th><th class="hide-sm">日K趋势</th><th>阶段放量</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+  $("resultBox").querySelectorAll("tbody tr").forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.tagName === "A") return;
+      window.open("https://gu.qq.com/" + tr.dataset.tx, "_blank");
+    });
+  });
+}
+
+$("btnStart").addEventListener("click", () => runScan(false));
+$("btnStop").addEventListener("click", () => { cancelFlag = true; });
+$("autoSw").addEventListener("click", function () {
+  const on = !this.classList.contains("on");
+  this.classList.toggle("on", on);
+  if (on) {
+    runScan(true);
+    autoTimer = setInterval(() => runScan(true), AUTO_MS);
+    toast("已开启每 10 分钟自动扫描", 3000);
+  } else {
+    clearInterval(autoTimer);
+    toast("已关闭自动扫描", 3000);
+  }
+});
+</script>
+</body>
+</html>
