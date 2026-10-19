@@ -121,7 +121,7 @@
   <div class="bar">
     <span class="logo"><span class="dot">◉</span> Huan Yin Securities</span>
     <span id="mkt" class="badge"><span class="pd"></span><span id="mktTxt">检测中</span></span>
-    <span class="cond">20日内涨停 × 收盘站上5日线 × 30分钟局部放量上涨</span>
+    <span class="cond">20日内涨停 × 5日线上 × 破最近涨停价 × 30分局部放量</span>
     <span class="clock mono" id="clock"></span>
   </div>
 </header>
@@ -153,7 +153,7 @@
   </div>
 
   <div class="note">
-    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 最近一根 30 分钟 K 线收阳上涨，且其成交量 ≥ 前一根 30 分钟 K 线 × 阈值（局部放量）。
+    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 最近一根 30 分钟 K 线收阳上涨，且其成交量 ≥ 前一根 30 分钟 K 线 × 阈值（局部放量）；<b>④</b> 当前股价高于 20 天内最近一个涨停日的收盘价（突破最近涨停价）。
   </div>
 
   <footer>
@@ -270,9 +270,9 @@ async function runScan(isAuto) {
         for (const p of (d.data && d.data.pool) || []) {
           if (!p.c || !p.n) continue;
           const ex = candMap.get(p.c);
-          if (!ex) candMap.set(p.c, { code: p.c, m: p.m, name: p.n, lbc: p.lbc || 1, lastZT: dt });
+          if (!ex) candMap.set(p.c, { code: p.c, m: p.m, name: p.n, lbc: p.lbc || 1, lastZT: dt, ztPrice: (p.p || 0) / 1000 });
           else {
-            if (dt > ex.lastZT) { ex.lastZT = dt; ex.name = p.n; ex.m = p.m; }
+            if (dt > ex.lastZT) { ex.lastZT = dt; ex.name = p.n; ex.m = p.m; ex.ztPrice = (p.p || 0) / 1000; }
             ex.lbc = Math.max(ex.lbc, p.lbc || 1);
           }
         }
@@ -306,7 +306,7 @@ async function runScan(isAuto) {
             const last = closes[closes.length - 1];
             const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
             const ma5 = avg(closes.slice(-5));
-            if (last > ma5) {
+            if (last > ma5 && c.ztPrice > 0 && last > c.ztPrice) {
               const m30 = await getJSON(M30_URL(txCode(c)));
               const bars = (m30.data[txCode(c)] || {}).m30 || [];
               const n = bars.length;
@@ -323,7 +323,7 @@ async function runScan(isAuto) {
                   results.push({
                     code: c.code, m: c.m, name: c.name, lbc: c.lbc, lastZT: c.lastZT,
                     price: last, pct: prevClose ? ((last - prevClose) / prevClose) * 100 : null,
-                    ma5, volRatio: ratio, latest30: barPct,
+                    ma5, volRatio: ratio, latest30: barPct, ztPrice: c.ztPrice,
                   });
                 }
               }
@@ -380,7 +380,7 @@ function renderResults(list, totalCand, secs) {
     return `<tr data-tx="${tx}" data-name="${esc(r.name)}">
       <td><span class="nm">${esc(r.name)}</span>${r.lbc >= 2 ? `<span class="lb">${r.lbc} 连板</span>` : ""}<br><span class="cd mono">${r.code}</span></td>
       <td><span class="mono ${cls(r.pct)}">${r.price.toFixed(2)}</span><br><span class="sub mono ${cls(r.pct)}">${sgn(r.pct)}%</span></td>
-      <td class="mono" style="color:#d4d4d8">${fmtZT(r.lastZT)}</td>
+      <td class="mono" style="color:#d4d4d8">${fmtZT(r.lastZT)}<br><span class="sub mono" style="color:#71717a">板价 ${r.ztPrice.toFixed(2)}</span></td>
       <td><span class="trend-tag">5日线上</span><br><span class="sub mono" style="color:#71717a">M5 ${r.ma5.toFixed(2)}</span></td>
       <td><span class="vol mono">${r.volRatio.toFixed(2)}×</span><br><span class="sub mono ${cls(r.latest30)}">30分${sgn(r.latest30)}%</span></td>
       <td><a class="q" href="https://gu.qq.com/${tx}" target="_blank" rel="noopener">行情 ↗</a></td>
