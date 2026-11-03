@@ -204,9 +204,10 @@ async function fetchDaily(tx) {
   let lastErr;
   for (const src of DAY_SOURCES) {
     try {
-      const d = await getJSON(src(tx).url);
+      const def = src(tx);
+      const d = await getJSON(def.url);
       const node = (d.data || {})[tx] || {};
-      for (const k of src.keys) {
+      for (const k of def.keys) {
         const rows = node[k];
         if (rows && rows.length >= 6) return rows;
       }
