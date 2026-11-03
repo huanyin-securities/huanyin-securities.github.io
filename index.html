@@ -167,8 +167,25 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const ZT_URL = (dt) => `https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=500&sort=fbt%3Aasc&date=${dt}`;
-const DAY_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline?param=${tx},day,,,6`;
-const DAY_URL_BAK = (tx) => `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`;
+// 日 K 多数据源：按顺序自动切换（主源异常时自行修复），均返回 [date,open,close,high,low,vol]
+const DAY_SOURCES = [
+  (tx) => ({ url: `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline?param=${tx},day,,,6`, keys: ["day"] }),
+  (tx) => ({ url: `https://ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`, keys: ["qfqday", "day"] }),
+];
+async function fetchDaily(tx) {
+  let lastErr;
+  for (const src of DAY_SOURCES) {
+    try {
+      const d = await getJSON(src.url(tx));
+      const node = (d.data || {})[tx] || {};
+      for (const k of src.keys) {
+        const rows = node[k];
+        if (rows && rows.length >= 6) return rows;
+      }
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("日K数据源全部不可用");
+}
 const M30_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=${tx},m30,,16`;
 const POOL_DAYS = 28;
 const AUTO_MS = 10 * 60 * 1000;
@@ -299,12 +316,8 @@ async function runScan(isAuto) {
       while (queue.length && !cancelFlag) {
         const c = queue.shift();
         try {
-          // 日 K：主接口取腾讯 kline/kline（实际价格，与涨停价可比），失败回退前复权接口
-          let daily;
-          try { daily = await getJSON(DAY_URL(txCode(c))); }
-          catch (e1) { daily = await getJSON(DAY_URL_BAK(txCode(c))); }
-          const node = daily.data[txCode(c)];
-          const rows = node.day || node.qfqday || [];
+          // 日 K：多源自动切换（数据源异常时自行修复）
+          const rows = await fetchDaily(txCode(c));
           const closes = rows.map((r) => Number(r[2]));
           if (closes.length >= 6) {
             const last = closes[closes.length - 1];
