@@ -141,11 +141,23 @@
   .sec-pct span { position: relative; font-weight: 700; }
   .sec-ud { text-align: right; white-space: nowrap; }
   .sec-ud .u { color: #f43f5e; } .sec-ud .d { color: #10b981; }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 0 0 2px; }
+  .duo .sec-box { padding: 6px 16px 14px; min-width: 0; }
+  .flow-row { display: grid; grid-template-columns: 26px 1.2fr 1fr 64px; align-items: center;
+    gap: 8px; padding: 5px 0; border-bottom: 1px solid #1f1f22; font-size: 12px; }
+  .flow-row:last-child { border-bottom: none; }
+  .flow-amt { position: relative; height: 18px; background: #18181b; border-radius: 4px;
+    overflow: hidden; text-align: right; line-height: 18px; padding-right: 5px; }
+  .flow-amt i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(244,63,94,.25); }
+  .flow-amt.out i { background: rgba(16,185,129,.25); }
+  .flow-amt span { position: relative; font-weight: 700; }
+  .flow-pct { text-align: right; white-space: nowrap; }
 
   @media (max-width: 640px) {
     .hide-sm { display: none; }
     tbody td, thead th { padding: 8px 6px; }
     .idx-row { grid-template-columns: 1fr; }
+    .duo { grid-template-columns: 1fr; gap: 0; }
   }
 </style>
 </head>
@@ -168,7 +180,10 @@
     </div>
     <div class="idx-row" id="idxRow"></div>
     <div class="breadth" id="breadthBox"></div>
-    <div class="sec-box" id="sectorBox"></div>
+    <div class="duo">
+      <div class="sec-box" id="sectorBox"></div>
+      <div class="sec-box" id="flowBox"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -311,6 +326,8 @@ const IDX_LIST = [
 const IDX_QUOTE_URL = "https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001,0.399006,0.399106&fields=f2,f3,f4,f12,f104,f105,f106&fltt=2&invt=2";
 // 东财概念板块涨幅榜（按涨跌幅降序，取前 15）
 const SECTOR_URL = "https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:3&fields=f2,f3,f12,f14,f104,f105,f128,f140";
+// 东财概念板块主力净流入榜（按净流入降序，取前 15）
+const FLOW_URL = "https://push2delay.eastmoney.com/api/qt/clist/get?pn=1&pz=30&po=1&np=1&fltt=2&invt=2&fid=f62&fs=m:90+t:3&fields=f3,f12,f14,f62";
 const idxCache = {}; // tx -> { closes, pct }，窗口缩放时重绘用
 
 function drawIdxChart(canvas, closes, up) {
@@ -418,7 +435,13 @@ async function loadMarket() {
   }
   $("mktTime").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN") + " · 每 30 秒自动刷新";
   loadSectors();
+  loadFlows();
 }
+
+const fmtAmt = (v) => (v == null || isNaN(v) ? "--"
+  : v >= 1e8 ? (v / 1e8).toFixed(2) + "亿"
+  : v >= 1e4 ? (v / 1e4).toFixed(1) + "万"
+  : Number(v).toFixed(0));
 
 async function loadSectors() {
   let list = [];
@@ -444,6 +467,33 @@ async function loadSectors() {
         <span class="sec-lead" title="领涨股">${x.f128 ? "领涨 " + esc(x.f128) : "--"}</span>
         <span class="sec-pct ${cls(pct)}"><i style="width:${w}%"></i><span class="mono">${sgn(pct)}%</span></span>
         <span class="sec-ud"><span class="u mono">${up}</span> / <span class="d mono">${dn}</span></span>
+      </div>`;
+    }).join("");
+}
+
+async function loadFlows() {
+  let list = [];
+  try {
+    const d = await getJSON(FLOW_URL);
+    list = ((d.data && d.data.diff) || []).filter((x) => x.f14 && !x.f14.startsWith("昨日")).slice(0, 15);
+  } catch (e) {}
+  const box = $("flowBox");
+  if (!list.length) {
+    box.innerHTML = `<div class="sec-title">💰 板块资金净流入</div>
+      <div style="font-size:12px;color:#71717a">资金流数据暂不可用（东财接口异常）</div>`;
+    return;
+  }
+  const maxAbs = Math.max(...list.map((x) => Math.abs(Number(x.f62) || 0)), 1);
+  box.innerHTML = `<div class="sec-title">💰 板块资金净流入 TOP ${list.length}</div>` +
+    list.map((x, i) => {
+      const amt = Number(x.f62) || 0;
+      const pct = Number(x.f3) || 0;
+      const w = Math.max(2, Math.round((Math.abs(amt) / maxAbs) * 100));
+      return `<div class="flow-row">
+        <span class="sec-rank mono">${i + 1}</span>
+        <span class="sec-name" title="${esc(x.f14)}">${esc(x.f14)}</span>
+        <span class="flow-amt ${amt < 0 ? "out" : ""}"><i style="width:${w}%"></i><span class="mono ${amt >= 0 ? "up" : "dn"}">${fmtAmt(amt)}</span></span>
+        <span class="flow-pct mono ${cls(pct)}">${sgn(pct)}%</span>
       </div>`;
     }).join("");
 }
