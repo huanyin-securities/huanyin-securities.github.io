@@ -204,7 +204,7 @@ async function fetchDaily(tx) {
   let lastErr;
   for (const src of DAY_SOURCES) {
     try {
-      const d = await getJSON(src.url(tx));
+      const d = await getJSON(src(tx).url);
       const node = (d.data || {})[tx] || {};
       for (const k of src.keys) {
         const rows = node[k];
