@@ -167,8 +167,8 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const ZT_URL = (dt) => `https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=500&sort=fbt%3Aasc&date=${dt}`;
-const DAY_URL = (tx) => `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`;
-const DAY_URL_BAK = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`;
+const DAY_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline?param=${tx},day,,,6`;
+const DAY_URL_BAK = (tx) => `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${tx},day,,,6,qfq`;
 const M30_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=${tx},m30,,16`;
 const POOL_DAYS = 28;
 const AUTO_MS = 10 * 60 * 1000;
@@ -299,12 +299,12 @@ async function runScan(isAuto) {
       while (queue.length && !cancelFlag) {
         const c = queue.shift();
         try {
-          // 日 K：主接口被 WAF 拦截时自动回退备用域名
+          // 日 K：主接口取腾讯 kline/kline（实际价格，与涨停价可比），失败回退前复权接口
           let daily;
           try { daily = await getJSON(DAY_URL(txCode(c))); }
           catch (e1) { daily = await getJSON(DAY_URL_BAK(txCode(c))); }
           const node = daily.data[txCode(c)];
-          const rows = node.qfqday || node.day || [];
+          const rows = node.day || node.qfqday || [];
           const closes = rows.map((r) => Number(r[2]));
           if (closes.length >= 6) {
             const last = closes[closes.length - 1];
