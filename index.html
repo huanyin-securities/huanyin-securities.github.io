@@ -109,9 +109,27 @@
 
   footer { text-align: center; font-size: 11px; color: #52525b; padding: 18px 16px 28px; line-height: 1.8; }
   .note { font-size: 11px; color: #52525b; padding: 0 16px 10px; line-height: 1.7; }
+
+  /* 市场概述 */
+  .mkt-hd { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 2px; flex-wrap: wrap; }
+  .mkt-title { font-size: 13px; font-weight: 700; color: #e4e4e7; letter-spacing: .5px; }
+  .idx-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 10px 16px 6px; }
+  .idx-item { background: #18181b; border: 1px solid #27272a; border-radius: 10px; padding: 10px 12px 8px; }
+  .idx-name { font-size: 12px; color: #a1a1aa; }
+  .idx-price { font-size: 20px; font-weight: 700; margin: 2px 0; }
+  .idx-chg { font-size: 11px; color: #71717a; }
+  .idx-canvas { width: 100%; height: 56px; display: block; margin-top: 6px; }
+  .breadth { padding: 6px 16px 14px; }
+  .bw-row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; flex-wrap: wrap; gap: 4px; }
+  .bw-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: #27272a; }
+  .bw-up { background: #f43f5e; } .bw-dn { background: #10b981; } .bw-flat { background: #52525b; }
+  .bw-tags { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: #a1a1aa; margin-top: 9px; }
+  .bw-tags b { font-weight: 700; }
+
   @media (max-width: 640px) {
     .hide-sm { display: none; }
     tbody td, thead th { padding: 8px 6px; }
+    .idx-row { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -127,6 +145,15 @@
 </header>
 
 <div class="wrap">
+  <div class="card" id="mktCard">
+    <div class="mkt-hd">
+      <span class="mkt-title">📊 市场概述</span>
+      <span id="mktTime" class="mono" style="font-size:11px;color:#71717a"></span>
+    </div>
+    <div class="idx-row" id="idxRow"></div>
+    <div class="breadth" id="breadthBox"></div>
+  </div>
+
   <div class="card">
     <div class="ctrl">
       <label>局部放量≥ <input type="number" id="threshold" value="1.5" step="0.1" min="0.5"> 倍</label>
@@ -167,6 +194,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const ZT_URL = (dt) => `https://push2ex.eastmoney.com/getTopicZTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=500&sort=fbt%3Aasc&date=${dt}`;
+const DT_URL = (dt) => `https://push2ex.eastmoney.com/getTopicDTPool?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0&pagesize=10&sort=fbt%3Aasc&date=${dt}`;
 // 日 K 多数据源：按顺序自动切换（主源异常时自行修复），均返回 [date,open,close,high,low,vol]
 const DAY_SOURCES = [
   (tx) => ({ url: `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline?param=${tx},day,,,6`, keys: ["day"] }),
@@ -254,6 +282,135 @@ function tickClock() {
   $("mktTxt").textContent = open ? "A股交易中" : "已收盘 / 休市";
 }
 setInterval(tickClock, 1000); tickClock();
+
+/* ---------- 指数图示与市场概述 ---------- */
+const IDX_LIST = [
+  { secid: "1.000001", tx: "sh000001", name: "上证指数" },
+  { secid: "0.399001", tx: "sz399001", name: "深证成指" },
+  { secid: "0.399006", tx: "sz399006", name: "创业板指" },
+];
+// 东财快照：三只展示指数 + 深证综指（399106 覆盖全深市，用于涨跌家数）
+const IDX_QUOTE_URL = "https://push2delay.eastmoney.com/api/qt/ulist.np/get?secids=1.000001,0.399001,0.399006,0.399106&fields=f2,f3,f4,f12,f104,f105,f106&fltt=2&invt=2";
+const idxCache = {}; // tx -> { closes, pct }，窗口缩放时重绘用
+
+function drawIdxChart(canvas, closes, up) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 260, h = canvas.clientHeight || 56;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  if (!closes || closes.length < 2) return;
+  const min = Math.min(...closes), max = Math.max(...closes), span = (max - min) || 1;
+  const color = up ? "#f43f5e" : "#10b981";
+  const px = (i) => (i / (closes.length - 1)) * (w - 2) + 1;
+  const py = (v) => h - 3 - ((v - min) / span) * (h - 6);
+  ctx.beginPath();
+  closes.forEach((v, i) => { i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v)); });
+  ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.lineTo(px(closes.length - 1), h); ctx.lineTo(px(0), h); ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, color + "2e"); g.addColorStop(1, color + "00");
+  ctx.fillStyle = g; ctx.fill();
+}
+
+async function loadMarket() {
+  // 1) 指数快照 + 涨跌家数（一只请求）
+  let qmap = {};
+  try {
+    const d = await getJSON(IDX_QUOTE_URL);
+    for (const it of (d.data && d.data.diff) || []) qmap[it.f12] = it;
+  } catch (e) {}
+  // 2) 指数近 40 日 K 线（腾讯），渲染图示卡片
+  const row = $("idxRow");
+  if (!row.children.length) {
+    row.innerHTML = IDX_LIST.map((x) => `
+      <div class="idx-item">
+        <div class="idx-name">${x.name}</div>
+        <div class="idx-price mono" id="px_${x.tx}">--</div>
+        <div class="idx-chg mono" id="pc_${x.tx}">--</div>
+        <canvas class="idx-canvas" id="cv_${x.tx}"></canvas>
+      </div>`).join("");
+  }
+  await Promise.all(IDX_LIST.map(async (x) => {
+    try {
+      const d = await getJSON(`https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/kline?param=${x.tx},day,,,40`);
+      const rows = ((d.data || {})[x.tx] || {}).day || [];
+      const closes = rows.map((r) => Number(r[2]));
+      if (closes.length < 2) throw new Error("kline short");
+      const q = qmap[x.tx.slice(2)];
+      const last = q && q.f2 ? Number(q.f2) : closes[closes.length - 1];
+      const pct = q && q.f3 != null ? Number(q.f3)
+        : ((closes[closes.length - 1] - closes[closes.length - 2]) / closes[closes.length - 2]) * 100;
+      idxCache[x.tx] = { closes, pct };
+      const pxEl = $("px_" + x.tx), pcEl = $("pc_" + x.tx);
+      if (pxEl) {
+        pxEl.textContent = last.toFixed(2);
+        pxEl.style.color = pct > 0 ? "#f43f5e" : pct < 0 ? "#10b981" : "#e4e4e7";
+      }
+      if (pcEl) pcEl.innerHTML = `<span class="${cls(pct)}">${sgn(pct)}%</span>` +
+        (q && q.f4 != null ? `　<span title="当日涨跌点数">涨跌 ${sgn(Number(q.f4))}</span>` : "");
+      const cv = $("cv_" + x.tx);
+      if (cv) drawIdxChart(cv, closes, pct >= 0);
+    } catch (e) {
+      idxCache[x.tx] = null;
+      const pcEl = $("pc_" + x.tx);
+      if (pcEl) pcEl.innerHTML = `<span style="color:#71717a">K线暂不可用</span>`;
+    }
+  }));
+  // 3) 全市场涨跌家数（上证 + 深证综指）+ 涨跌停家数
+  const sh = qmap["000001"], sz = qmap["399106"];
+  const up = (sh && sh.f104 ? sh.f104 : 0) + (sz && sz.f104 ? sz.f104 : 0);
+  const dn = (sh && sh.f105 ? sh.f105 : 0) + (sz && sz.f105 ? sz.f105 : 0);
+  const flat = (sh && sh.f106 ? sh.f106 : 0) + (sz && sz.f106 ? sz.f106 : 0);
+  let zt = null, dtn = null, qdate = "";
+  const today = lastNDates(1)[0];
+  try {
+    const z = await getJSON(ZT_URL(today));
+    const zd = z.data || {};
+    zt = zd.tc != null ? zd.tc : (zd.pool || []).length;
+    qdate = String(zd.qdate || "");
+  } catch (e) {}
+  try {
+    const t = await getJSON(DT_URL(today));
+    const td = t.data || {};
+    dtn = td.tc != null ? td.tc : (td.pool || []).length;
+    if (!qdate) qdate = String(td.qdate || "");
+  } catch (e) {}
+  const tot = up + dn + flat;
+  if (!tot) {
+    $("breadthBox").innerHTML = `<div style="font-size:12px;color:#71717a">涨跌家数暂不可用（东财快照接口异常）</div>`;
+  } else {
+    const upW = Math.max(2, Math.round((up / tot) * 100));
+    const dnW = Math.max(2, Math.round((dn / tot) * 100));
+    const flW = Math.max(flat ? 1 : 0, Math.round((flat / tot) * 100));
+    $("breadthBox").innerHTML = `
+      <div class="bw-row">
+        <span class="up">▲ 上涨 <b class="mono">${up}</b> 家</span>
+        <span class="flat">― 平盘 <b class="mono">${flat}</b> 家</span>
+        <span class="dn">▼ 下跌 <b class="mono">${dn}</b> 家</span>
+      </div>
+      <div class="bw-bar"><div class="bw-up" style="width:${upW}%"></div><div class="bw-flat" style="width:${flW}%"></div><div class="bw-dn" style="width:${dnW}%"></div></div>
+      <div class="bw-tags">
+        <span>涨停 <b class="up mono">${zt ?? "--"}</b> 家</span>
+        <span>跌停 <b class="dn mono">${dtn ?? "--"}</b> 家</span>
+        <span>数据日期 <b class="mono">${qdate ? qdate.slice(0, 4) + "-" + qdate.slice(4, 6) + "-" + qdate.slice(6, 8) : "--"}</b></span>
+      </div>`;
+  }
+  $("mktTime").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN") + " · 每 30 秒自动刷新";
+}
+
+loadMarket();
+setInterval(loadMarket, 30000);
+let rszT = null;
+window.addEventListener("resize", () => {
+  clearTimeout(rszT);
+  rszT = setTimeout(() => {
+    for (const [tx, c] of Object.entries(idxCache)) {
+      const cv = $("cv_" + tx);
+      if (cv && c) drawIdxChart(cv, c.closes, c.pct >= 0);
+    }
+  }, 200);
+});
 
 /* ---------- 扫描 ---------- */
 function setProgress(phase, done, total, hits) {
