@@ -167,7 +167,7 @@
   <div class="bar">
     <span class="logo"><span class="dot">◉</span> Huan Yin Securities</span>
     <span id="mkt" class="badge"><span class="pd"></span><span id="mktTxt">检测中</span></span>
-    <span class="cond">20日内涨停 × 5日线上 × 破最近涨停价 × 30分放量后走强</span>
+    <span class="cond">10日内涨停 × 5日线上 × 破最近涨停价 × 30分放量后走强</span>
     <span class="clock mono" id="clock"></span>
   </div>
 </header>
@@ -212,7 +212,7 @@
   </div>
 
   <div class="note">
-    策略说明：<b>①</b> 回溯近 20 个交易日（28 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 近 2 个交易日内出现过 30 分钟放量 K 线（成交量 ≥ 前一根 30 分钟 K 线 × 阈值），且当前股价已高于该放量 K 线的收盘价；<b>④</b> 当前股价高于 20 天内最近一个涨停日的收盘价（突破最近涨停价）。
+    策略说明：<b>①</b> 回溯近 10 个交易日（16 个自然日）每日涨停池，取出现过涨停收盘的个股；<b>②</b> 日 K 收盘价站上 5 日均线（收盘 &gt; MA5）；<b>③</b> 近 2 个交易日内出现过 30 分钟放量 K 线（成交量 ≥ 前一根 30 分钟 K 线 × 阈值），且当前股价已高于该放量 K 线的收盘价；<b>④</b> 当前股价高于 10 天内最近一个涨停日的收盘价（突破最近涨停价）。
   </div>
 
   <footer>
@@ -248,7 +248,7 @@ async function fetchDaily(tx) {
   throw lastErr || new Error("日K数据源全部不可用");
 }
 const M30_URL = (tx) => `https://proxy.finance.qq.com/ifzqgtimg/appstock/app/kline/mkline?param=${tx},m30,,16`;
-const POOL_DAYS = 28;
+const POOL_DAYS = 16; // 回溯 16 个自然日，覆盖近 10 个交易日
 const AUTO_MS = 10 * 60 * 1000;
 
 let running = false, cancelFlag = false, autoTimer = null, lastHitKeys = new Set();
@@ -552,7 +552,7 @@ async function runScan(isAuto) {
         }
       } catch (e) { /* 非交易日或网络异常，跳过 */ }
       ztDone++;
-      setProgress(`正在汇总涨停池（近 20 个交易日）…`, ztDone, dates.length, 0);
+      setProgress(`正在汇总涨停池（近 10 个交易日）…`, ztDone, dates.length, 0);
     }));
 
     if (cancelFlag) return finish();
@@ -560,7 +560,7 @@ async function runScan(isAuto) {
     $("stCand").textContent = candidates.length;
     if (candidates.length === 0) {
       renderResults([], 0, ((Date.now() - t0) / 1000).toFixed(0));
-      toast("近 20 个交易日涨停池为空或接口暂不可用，请稍后重试", 6000);
+      toast("近 10 个交易日涨停池为空或接口暂不可用，请稍后重试", 6000);
       return finish();
     }
 
